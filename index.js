@@ -1,104 +1,105 @@
 const express = require("express");
 const mysql = require("mysql2");
-const bcrypt = require("bcrypt");
-const cors = require("cors");
-require("dotenv").config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Middlewares
-app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// DB connection (external)
+// ================= DB CONFIG =================
 const db = mysql.createConnection({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME
+  database: process.env.DB_NAME,
+  port: process.env.DB_PORT || 3306,
+  connectTimeout: 10000
 });
 
-db.connect(err => {
-  if (err) console.log("DB Error:", err);
-  else console.log("DB Connected");
+// ================= DB CONNECT =================
+db.connect((err) => {
+  if (err) {
+    console.log("❌ DB Connection Failed");
+    console.log(err);
+  } else {
+    console.log("✅ MySQL Connected");
+  }
 });
 
-/* ================= SIGNUP API ================= */
-app.post("/signup", async (req, res) => {
+// ================= ROOT =================
+app.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "API is running"
+  });
+});
+
+// ================= SIGNUP =================
+app.post("/signup", (req, res) => {
   const { name, email, password } = req.body;
 
   if (!name || !email || !password) {
-    return res.json({ success: false, message: "All fields are required" });
+    return res.json({
+      success: false,
+      message: "All fields are required"
+    });
   }
 
-  db.query(
-    "SELECT id FROM users WHERE email=?",
-    [email],
-    async (err, result) => {
-      if (err) return res.json({ success: false, message: "Database error" });
+  const sql =
+    "INSERT INTO users (name, email, password) VALUES (?, ?, ?)";
 
-      if (result.length > 0) {
-        return res.json({ success: false, message: "Email already registered" });
-      }
-
-      const hash = await bcrypt.hash(password, 10);
-
-      db.query(
-        "INSERT INTO users (name,email,password) VALUES (?,?,?)",
-        [name, email, hash],
-        err2 => {
-          if (err2) return res.json({ success: false, message: "Signup failed" });
-
-          return res.json({
-            success: true,
-            message: "Signup successful"
-          });
-        }
-      );
+  db.query(sql, [name, email, password], (err) => {
+    if (err) {
+      return res.json({
+        success: false,
+        message: "Email already exists"
+      });
     }
-  );
+
+    res.json({
+      success: true,
+      message: "Signup successful"
+    });
+  });
 });
 
-/* ================= LOGIN API ================= */
+// ================= LOGIN =================
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    return res.json({ success: false, message: "All fields are required" });
+    return res.json({
+      success: false,
+      message: "All fields are required"
+    });
   }
 
-  db.query(
-    "SELECT * FROM users WHERE email=?",
-    [email],
-    async (err, result) => {
-      if (err) return res.json({ success: false, message: "Database error" });
+  const sql =
+    "SELECT id, name, email FROM users WHERE email=? AND password=?";
 
-      if (result.length === 0) {
-        return res.json({ success: false, message: "User not found" });
-      }
-
-      const match = await bcrypt.compare(password, result[0].password);
-
-      if (!match) {
-        return res.json({ success: false, message: "Wrong password" });
-      }
-
+  db.query(sql, [email, password], (err, result) => {
+    if (err) {
       return res.json({
-        success: true,
-        message: "Login successful",
-        user: {
-          id: result[0].id,
-          name: result[0].name,
-          email: result[0].email
-        }
+        success: false,
+        message: "Database error"
       });
     }
-  );
+
+    if (result.length === 0) {
+      return res.json({
+        success: false,
+        message: "Invalid email or password"
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Login successful",
+      user: result[0]
+    });
+  });
 });
 
-// Server start
+// ================= PORT =================
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("API running on port", PORT);
+  console.log("🚀 Server running on port", PORT);
 });
