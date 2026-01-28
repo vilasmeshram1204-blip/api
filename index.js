@@ -1,88 +1,68 @@
 const express = require("express");
+const cors = require("cors");
 const mysql = require("mysql2");
 const bcrypt = require("bcrypt");
+require("dotenv").config();
 
 const app = express();
-app.use(express.json());
+const PORT = process.env.PORT || 3000;
 
-// ===== MySQL Connection =====
+// CORS allow mobile apps
+app.use(cors());
+
+// Parse JSON and URL-encoded bodies
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// External MySQL connection
 const db = mysql.createConnection({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  port: process.env.DB_PORT
+  port: 3306
 });
 
-db.connect(err => {
-  if (err) {
-    console.log("DB ERROR:", err);
-  } else {
-    console.log("MySQL Connected");
-  }
+db.connect((err) => {
+  if (err) console.error("DB connection failed:", err);
+  else console.log("Connected to external MySQL DB");
 });
 
-// ===== Test API =====
-app.get("/", (req, res) => {
-  res.send("Render + MySQL Connected (Mobile)");
-});
-
-// ===== SIGNUP API =====
+// Signup route
 app.post("/signup", async (req, res) => {
   const { name, email, password } = req.body;
 
   if (!name || !email || !password) {
-    return res.json({ status: "error", message: "All fields required" });
+    return res.json({ success: false, message: "All fields are required" });
   }
 
-  const hash = await bcrypt.hash(password, 10);
+  try {
+    // Check if email exists
+    db.query("SELECT * FROM users WHERE email = ?", [email], async (err, results) => {
+      if (err) return res.json({ success: false, message: "Database error" });
 
-  db.query(
-    "INSERT INTO users (name,email,password) VALUES (?,?,?)",
-    [name, email, hash],
-    (err) => {
-      if (err) {
-        return res.json({ status: "error", message: "Email already exists" });
+      if (results.length > 0) {
+        return res.json({ success: false, message: "Email already registered" });
       }
-      res.json({ status: "success", message: "Signup successful" });
-    }
-  );
-});
 
-// ===== LOGIN API =====
-app.post("/login", (req, res) => {
-  const { email, password } = req.body;
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
 
-  if (!email || !password) {
-    return res.json({ status: "error", message: "Email & password required" });
+      // Insert user
+      db.query(
+        "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
+        [name, email, hashedPassword],
+        (err2) => {
+          if (err2) return res.json({ success: false, message: "Database error" });
+
+          return res.json({ success: true, message: "Signup successful" });
+        }
+      );
+    });
+  } catch (error) {
+    return res.json({ success: false, message: "Server error" });
   }
-
-  db.query(
-    "SELECT * FROM users WHERE email=?",
-    [email],
-    async (err, result) => {
-
-      if (result.length === 0) {
-        return res.json({ status: "error", message: "User not found" });
-      }
-
-      const match = await bcrypt.compare(password, result[0].password);
-
-      if (!match) {
-        return res.json({ status: "error", message: "Wrong password" });
-      }
-
-      res.json({
-        status: "success",
-        message: "Login successful",
-        name: result[0].name,
-        email: result[0].email
-      });
-    }
-  );
 });
 
-// ===== Server =====
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
-});
+// Start server
+app.listen(PORT, () => console.log(`Render Signup API running on port ${PORT}`));
