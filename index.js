@@ -5,7 +5,7 @@ const bcrypt = require("bcryptjs");
 const app = express();
 app.use(express.json());
 
-// ================= DB =================
+// ================= DATABASE =================
 const db = mysql.createConnection({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -17,7 +17,7 @@ const db = mysql.createConnection({
 
 db.connect((err) => {
   if (err) {
-    console.log("❌ DB Connection Failed", err);
+    console.log("❌ DB Connection Error:", err);
   } else {
     console.log("✅ MySQL Connected");
   }
@@ -29,7 +29,7 @@ app.get("/", (req, res) => {
 });
 
 // ================= EMAIL VALIDATOR =================
-function isValidEmail(email) {
+function validEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
@@ -37,23 +37,28 @@ function isValidEmail(email) {
 app.post("/signup", async (req, res) => {
   const { name, email, password, confirm_password } = req.body;
 
-  // 1️⃣ All fields check
-  if (!name || !email || !password || !confirm_password) {
+  // ✅ Require all fields
+  if (
+    !name?.trim() ||
+    !email?.trim() ||
+    !password?.trim() ||
+    !confirm_password?.trim()
+  ) {
     return res.json({
       success: false,
       message: "All fields are required"
     });
   }
 
-  // 2️⃣ Email validation
-  if (!isValidEmail(email)) {
+  // ✅ Email format
+  if (!validEmail(email)) {
     return res.json({
       success: false,
-      message: "Invalid email format"
+      message: "Invalid email"
     });
   }
 
-  // 3️⃣ Password length
+  // ✅ Password length
   if (password.length < 6) {
     return res.json({
       success: false,
@@ -61,15 +66,15 @@ app.post("/signup", async (req, res) => {
     });
   }
 
-  // 4️⃣ Confirm password
+  // ✅ Confirm password
   if (password !== confirm_password) {
     return res.json({
       success: false,
-      message: "Passwords do not match"
+      message: "Password not matched"
     });
   }
 
-  // 5️⃣ Check existing email
+  // ✅ Check duplicate email
   db.query(
     "SELECT id FROM users WHERE email=?",
     [email],
@@ -88,13 +93,13 @@ app.post("/signup", async (req, res) => {
         });
       }
 
-      // 6️⃣ Hash password
-      const hashedPassword = await bcrypt.hash(password, 10);
+      // ✅ Hash password
+      const hash = await bcrypt.hash(password, 10);
 
-      // 7️⃣ Insert user
+      // ✅ Insert user
       db.query(
-        "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
-        [name, email, hashedPassword],
+        "INSERT INTO users (name,email,password) VALUES (?,?,?)",
+        [name, email, hash],
         (err) => {
           if (err) {
             return res.json({
@@ -103,7 +108,6 @@ app.post("/signup", async (req, res) => {
             });
           }
 
-          // ✅ SUCCESS MESSAGE (GUARANTEED)
           res.json({
             success: true,
             message: "Signup successful"
@@ -118,22 +122,22 @@ app.post("/signup", async (req, res) => {
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
 
-  if (!email || !password) {
+  if (!email?.trim() || !password?.trim()) {
     return res.json({
       success: false,
       message: "All fields are required"
     });
   }
 
-  if (!isValidEmail(email)) {
+  if (!validEmail(email)) {
     return res.json({
       success: false,
-      message: "Invalid email format"
+      message: "Invalid email"
     });
   }
 
   db.query(
-    "SELECT id, name, email, password FROM users WHERE email=?",
+    "SELECT id,name,email,password FROM users WHERE email=?",
     [email],
     async (err, result) => {
       if (err) {
@@ -150,12 +154,12 @@ app.post("/login", (req, res) => {
         });
       }
 
-      const isMatch = await bcrypt.compare(
+      const match = await bcrypt.compare(
         password,
         result[0].password
       );
 
-      if (!isMatch) {
+      if (!match) {
         return res.json({
           success: false,
           message: "Invalid email or password"
