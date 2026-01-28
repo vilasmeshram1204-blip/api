@@ -1,34 +1,31 @@
 const express = require("express");
-const cors = require("cors");
 const mysql = require("mysql2");
 const bcrypt = require("bcrypt");
+const cors = require("cors");
 require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS allow mobile apps
+// Middlewares
 app.use(cors());
-
-// Parse JSON and URL-encoded bodies
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// External MySQL connection
+// DB connection (external)
 const db = mysql.createConnection({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  port: 3306
+  database: process.env.DB_NAME
 });
 
-db.connect((err) => {
-  if (err) console.error("DB connection failed:", err);
-  else console.log("Connected to external MySQL DB");
+db.connect(err => {
+  if (err) console.log("DB Error:", err);
+  else console.log("DB Connected");
 });
 
-// Signup route
+/* ================= SIGNUP API ================= */
 app.post("/signup", async (req, res) => {
   const { name, email, password } = req.body;
 
@@ -36,33 +33,72 @@ app.post("/signup", async (req, res) => {
     return res.json({ success: false, message: "All fields are required" });
   }
 
-  try {
-    // Check if email exists
-    db.query("SELECT * FROM users WHERE email = ?", [email], async (err, results) => {
+  db.query(
+    "SELECT id FROM users WHERE email=?",
+    [email],
+    async (err, result) => {
       if (err) return res.json({ success: false, message: "Database error" });
 
-      if (results.length > 0) {
+      if (result.length > 0) {
         return res.json({ success: false, message: "Email already registered" });
       }
 
-      // Hash password
-      const hashedPassword = await bcrypt.hash(password, 10);
+      const hash = await bcrypt.hash(password, 10);
 
-      // Insert user
       db.query(
-        "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
-        [name, email, hashedPassword],
-        (err2) => {
-          if (err2) return res.json({ success: false, message: "Database error" });
+        "INSERT INTO users (name,email,password) VALUES (?,?,?)",
+        [name, email, hash],
+        err2 => {
+          if (err2) return res.json({ success: false, message: "Signup failed" });
 
-          return res.json({ success: true, message: "Signup successful" });
+          return res.json({
+            success: true,
+            message: "Signup successful"
+          });
         }
       );
-    });
-  } catch (error) {
-    return res.json({ success: false, message: "Server error" });
-  }
+    }
+  );
 });
 
-// Start server
-app.listen(PORT, () => console.log(`Render Signup API running on port ${PORT}`));
+/* ================= LOGIN API ================= */
+app.post("/login", (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.json({ success: false, message: "All fields are required" });
+  }
+
+  db.query(
+    "SELECT * FROM users WHERE email=?",
+    [email],
+    async (err, result) => {
+      if (err) return res.json({ success: false, message: "Database error" });
+
+      if (result.length === 0) {
+        return res.json({ success: false, message: "User not found" });
+      }
+
+      const match = await bcrypt.compare(password, result[0].password);
+
+      if (!match) {
+        return res.json({ success: false, message: "Wrong password" });
+      }
+
+      return res.json({
+        success: true,
+        message: "Login successful",
+        user: {
+          id: result[0].id,
+          name: result[0].name,
+          email: result[0].email
+        }
+      });
+    }
+  );
+});
+
+// Server start
+app.listen(PORT, () => {
+  console.log("API running on port", PORT);
+});
